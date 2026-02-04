@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hex Analyzer & Universal Parser</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --text-color: #d4d4d4;
+            --accent-color: #007acc;
+            --border-color: #333;
+            --table-header-bg: #252526;
+            --table-row-hover: #2a2d2e;
+            --highlight-color: #ce9178;
+            --success-color: #4ec9b0;
+            --field-color: #9cdcfe;
+            --way-idx-color: #569cd6;
+            --reserved-color: #606060;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
+            overflow: hidden;
+        }
+
+        h2, h3 { border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-top: 0; font-size: 1.1em; }
+
+        .container {
+            display: grid;
+            gap: 20px;
+            /* 預設: 左側自適應，右側 380px */
+            grid-template-columns: 1fr 380px;
+            height: 95vh;
+            /* 加入平滑過渡效果 */
+            transition: grid-template-columns 0.3s ease;
+            position: relative; /* 為了定位 toggle 按鈕 */
+        }
+
+        /* 收合狀態: 右側寬度變為 0 */
+        .container.collapsed {
+            grid-template-columns: 1fr 0px;
+            gap: 0; /* 收合時移除間距 */
+        }
+
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; height: auto; overflow-y: auto; }
+            body { overflow: auto; }
+        }
+
+        /* --- Toggle Button --- */
+        .toggle-btn {
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 100;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px 0 0 4px; /* 左邊圓角 */
+            padding: 5px 10px;
+            cursor: pointer;
+            font-weight: bold;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+        .toggle-btn:hover {
+            opacity: 1;
+            background: var(--accent-color);
+        }
+        /* 當收合時，按鈕位置稍微調整一下，或保持在最右邊 */
+        .container.collapsed .toggle-btn {
+            background: var(--accent-color);
+        }
+
+        /* --- Left Panel --- */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            padding-right: 5px;
+            min-width: 300px;
+        }
+
+        .panel {
+            background: #252526;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid var(--border-color);
+        }
+
+        label { display: block; margin-bottom: 8px; color: #9cdcfe; font-weight: bold; font-size: 0.95em; }
+
+        textarea {
+            width: 100%;
+            background-color: #111;
+            color: var(--highlight-color);
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            font-family: inherit;
+            box-sizing: border-box;
+            resize: vertical;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        input[type="text"], input[type="number"] {
+            background: #111;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 6px;
+            font-family: inherit;
+        }
+
+        button.action-btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-family: inherit;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        button.action-btn:hover { background-color: #005f9e; }
+
+        .radio-group { display: flex; gap: 15px; margin-bottom: 5px; font-size: 0.9em; }
+
+        /* --- Parser Matrix Table --- */
+        .parser-container {
+            overflow: auto;
+            margin-top: 10px;
+            border-top: 1px solid #444;
+            flex-grow: 1;
+        }
+
+        .matrix-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+            white-space: nowrap;
+        }
+
+        .matrix-table th {
+            text-align: center;
+            color: var(--field-color);
+            border-bottom: 1px solid #555;
+            padding: 8px;
+            background: #2d2d2d;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .matrix-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #333;
+            text-align: center;
+        }
+
+        .way-col {
+            background: #222;
+            color: var(--way-idx-color);
+            font-weight: bold;
+            border-right: 2px solid #444 !important;
+            position: sticky;
+            left: 0;
+            z-index: 6;
+        }
+
+        .val-hex { color: var(--highlight-color); font-weight: bold; }
+        .val-range { display: block; font-size: 0.8em; color: #666; margin-top: 2px; }
+
+        .reserved-field { color: var(--reserved-color); font-style: italic; }
+
+        /* --- Right Panel (Main Table) --- */
+        .table-wrapper {
+            border: 1px solid var(--border-color);
+            overflow-y: auto;
+            background: #1e1e1e;
+            width: 100%;
+            /* 當寬度變為0時，隱藏內容，避免擠壓 */
+            overflow-x: hidden;
+            min-width: 0;
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+
+        /* 收合時隱藏內容以優化效能 */
+        .container.collapsed .table-wrapper {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        table.main-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        table.main-table th {
+            text-align: center;
+            padding: 8px 5px;
+            background-color: #333;
+            color: #9cdcfe;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 1px solid #555;
+        }
+
+        table.main-table td {
+            padding: 4px 5px;
+            border-bottom: 1px solid #2a2a2a;
+            border-right: 1px solid #2a2a2a;
+            white-space: nowrap;
+        }
+
+        .idx-col { width: 70px; color: #569cd6; text-align: right; border-right: 2px solid #444 !important; }
+        .bin-col { width: 140px; letter-spacing: 1px; font-family: 'Consolas'; color: #888; text-align: center; }
+        .hex-col { width: 50px; color: var(--highlight-color); text-align: center; }
+
+        .bit-1 { color: #b5cea8; font-weight: bold; background: rgba(181, 206, 168, 0.1); }
+        .bit-0 { color: #505050; }
+
+        tr:hover { background-color: var(--table-row-hover); }
+        .error { color: #f48771; margin-top: 5px; display: none; font-size: 0.9em; }
+
+        .stats-tag {
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="mainContainer">
+
+        <button class="toggle-btn" onclick="toggleRightPanel()" id="toggleBtn" title="Toggle Bit View"> Hide Bits &gt;&gt;</button>
+
+        <div class="left-panel">
+
+            <div class="panel">
+                <h3>1. Source Hex</h3>
+                <textarea id="hexInput" style="height: 70px;">00000000000000000000000032CF6CC100000000000000000000000000000009E610329FF0004000D620014DD</textarea>
+                <div id="errorMsg" class="error">Invalid Hex String</div>
+
+                <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+                    <button class="action-btn" onclick="performShift('left')"> << Shift Left </button>
+                    <input type="number" id="shiftAmount" value="1" min="0" style="width: 50px; text-align: center;">
+                    <button class="action-btn" onclick="performShift('right')"> Shift Right >> </button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>2. Range Extractor</h3>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="rangeInput" placeholder="e.g. 39:28" style="width: 200px;">
+                    <div id="extractorResult" style="display: none; margin-left: 10px;">
+                        <span style="color: #888;">Hex:</span> <span id="resHex" style="color: var(--success-color); font-weight: bold; margin-right: 15px;"></span>
+                        <span style="color: #888;">Dec:</span> <span id="resDec" style="color: white;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" style="border-left: 4px solid var(--field-color); flex-grow: 1; display: flex; flex-direction: column;">
+                <h3>3. Universal Parser</h3>
+
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px;">
+                    <label style="margin-bottom:0;">Field Definitions:</label>
+                    <span id="fieldStats" class="stats-tag">Total Width: 0 bits</span>
+                </div>
+
+                <textarea id="fieldDefInput" style="height: 140px;" placeholder="支援三種格式:&#10;1. Width Name: 13 BCD_L3IF&#10;2. Name Width: Tag 12&#10;3. Spec: Field val[7:0]">1	VALID
+1	TYPE
+13	BCD_L3IF
+48	MAC_ADDR
+1	BMSK_TYPE
+13	BMSK_BCD_L3IF
+48	BMSK_MAC_ADDR</textarea>
+
+                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="radio-group">
+                        <label>Order:</label>
+                        <div style="display:flex; align-items:center;">
+                            <input type="radio" name="pDir" id="dirMSB" value="MSB" checked onclick="parseFields()">
+                            <label for="dirMSB" style="font-weight: normal; margin-left:4px; cursor:pointer;" title="Way 0 starts at Top (MSB)">MSB First</label>
+                        </div>
+                        <div style="display:flex; align-items:center;">
+                            <input type="radio" name="pDir" id="dirLSB" value="LSB" onclick="parseFields()">
+                            <label for="dirLSB" style="font-weight: normal; margin-left:4px; cursor:pointer;" title="Way 0 starts at Bottom (Bit 0)">LSB First</label>
+                        </div>
+                    </div>
+                    <span id="wayStats" style="font-size: 0.85em; color: #888;"></span>
+                </div>
+
+                <div class="parser-container">
+                    <table class="matrix-table" id="matrixTable">
+                        </table>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="table-wrapper">
+            <table class="main-table">
+                <thead>
+                    <tr>
+                        <th class="idx-col">Index</th>
+                        <th class="bin-col">Bits (8)</th>
+                        <th class="hex-col">Hex</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+    </div>
+
+    <script>
+        const mainContainer = document.getElementById('mainContainer');
+        const toggleBtn = document.getElementById('toggleBtn');
+        const hexInput = document.getElementById('hexInput');
+        const shiftAmountInput = document.getElementById('shiftAmount');
+        const rangeInput = document.getElementById('rangeInput');
+        const fieldDefInput = document.getElementById('fieldDefInput');
+        const wayStats = document.getElementById('wayStats');
+        const fieldStats = document.getElementById('fieldStats');
+        const matrixTable = document.getElementById('matrixTable');
+        const tableBody = document.getElementById('tableBody');
+        const errorMsg = document.getElementById('errorMsg');
+        const extractorResult = document.getElementById('extractorResult');
+        const resHex = document.getElementById('resHex');
+        const resDec = document.getElementById('resDec');
+
+        updateAll();
+
+        hexInput.addEventListener('input', updateAll);
+        rangeInput.addEventListener('input', calculateRange);
+        fieldDefInput.addEventListener('input', parseFields);
+
+        // --- Toggle Logic ---
+        function toggleRightPanel() {
+            mainContainer.classList.toggle('collapsed');
+            const isCollapsed = mainContainer.classList.contains('collapsed');
+
+            if (isCollapsed) {
+                toggleBtn.innerHTML = '&lt;&lt; Show Bits';
+            } else {
+                toggleBtn.innerHTML = 'Hide Bits &gt;&gt;';
+            }
+        }
+
+        function updateAll() {
+            processHexView();
+            calculateRange();
+            parseFields();
+        }
+
+        function getCleanHex() {
+            return hexInput.value.trim().replace(/\s/g, '').replace(/^0x/i, '');
+        }
+
+        function hexToBinaryStr(hex) {
+            let binaryStr = '';
+            for (let char of hex) {
+                let val = parseInt(char, 16);
+                if (isNaN(val)) return null;
+                binaryStr += val.toString(2).padStart(4, '0');
+            }
+            return binaryStr;
+        }
+
+        function extractBits(fullBin, start, end) {
+            const totalBits = fullBin.length;
+            const strStart = totalBits - 1 - start;
+            const strEnd = totalBits - end;
+            if (strStart < 0 || strEnd > totalBits || strStart >= strEnd) return null;
+            return fullBin.slice(strStart, strEnd);
+        }
+
+        function performShift(direction) {
+            let hexStr = getCleanHex();
+            if (!hexStr) return;
+            try {
+                let bigVal = BigInt('0x' + hexStr);
+                let shift = BigInt(shiftAmountInput.value || 0);
+                if (direction === 'left') bigVal = bigVal << shift;
+                else bigVal = bigVal >> shift;
+                let newHex = bigVal.toString(16).toUpperCase();
+                if (newHex.length % 2 !== 0) newHex = '0' + newHex;
+                hexInput.value = newHex;
+                updateAll();
+            } catch (e) { showError(true); }
+        }
+
+        function processHexView() {
+            let rawHex = getCleanHex();
+            if (!/^[0-9A-Fa-f]+$/.test(rawHex)) {
+                if (rawHex.length > 0) showError(true);
+                else tableBody.innerHTML = '';
+                return;
+            }
+            showError(false);
+            if (rawHex.length % 2 !== 0) rawHex = '0' + rawHex;
+
+            // 如果右側被收合，可以選擇不渲染 DOM 提升效能 (可選)
+            // 這裡為了保持展開時能馬上看到，仍然渲染，但 CSS 會隱藏
+            let binaryStr = hexToBinaryStr(rawHex);
+            const totalBits = binaryStr.length;
+            tableBody.innerHTML = '';
+
+            for (let i = 0; i < totalBits; i += 8) {
+                const chunk = binaryStr.substring(i, i + 8);
+                const chunkStart = totalBits - 1 - i;
+                const chunkEnd = totalBits - (i + chunk.length);
+                const hexChunk = parseInt(chunk, 2).toString(16).toUpperCase().padStart(2, '0');
+                const styledBin = chunk.split('').map(b =>
+                    `<span class="${b === '1' ? 'bit-1' : 'bit-0'}">${b}</span>`
+                ).join('');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td class="idx-col">[${chunkStart}:${chunkEnd}]</td><td class="bin-col">${styledBin}</td><td class="hex-col">${hexChunk}</td>`;
+                tableBody.appendChild(tr);
+            }
+        }
+
+        function calculateRange() {
+            const rangeStr = rangeInput.value.trim();
+            const rawHex = getCleanHex();
+            if (!rangeStr.includes(':') && !/^\d+$/.test(rangeStr)) {
+                extractorResult.style.display = 'none';
+                return;
+            }
+            let high, low;
+            if (rangeStr.includes(':')) {
+                const parts = rangeStr.split(':');
+                high = parseInt(parts[0]); low = parseInt(parts[1]);
+            } else {
+                high = parseInt(rangeStr); low = parseInt(rangeStr);
+            }
+            if (isNaN(high) || isNaN(low)) return;
+            if (low > high) [low, high] = [high, low];
+
+            const fullBin = hexToBinaryStr(rawHex);
+            if (!fullBin) return;
+            const bits = extractBits(fullBin, high, low);
+            if (bits) {
+                const bigVal = BigInt('0b' + bits);
+                resHex.innerText = '0x' + bigVal.toString(16).toUpperCase();
+                resDec.innerText = bigVal.toString(10);
+                extractorResult.style.display = 'block';
+            } else {
+                extractorResult.style.display = 'none';
+            }
+        }
+
+        function parseFields() {
+            matrixTable.innerHTML = '';
+            wayStats.innerText = '';
+            fieldStats.innerText = 'Total Width: 0 bits';
+
+            let defStr = fieldDefInput.value.trim();
+            const rawHex = getCleanHex();
+            const fullBin = hexToBinaryStr(rawHex);
+            if (!defStr) return;
+
+            let fields = [];
+
+            if (defStr.match(/\[\d+:\d+\]/)) {
+                // Spec 格式
+                if(!document.getElementById('dirLSB').checked) {
+                     document.getElementById('dirLSB').checked = true;
+                }
+                const lines = defStr.split(/\n+/);
+                let tempFields = [];
+                const regex = /^\s*([a-zA-Z0-9_]+)\s+.*?\[(\d+):(\d+)\]/;
+
+                lines.forEach(line => {
+                    const match = line.match(regex);
+                    if (match) {
+                        const name = match[1];
+                        const msb = parseInt(match[2]);
+                        const lsb = parseInt(match[3]);
+                        const width = Math.abs(msb - lsb) + 1;
+                        tempFields.push({ name, width, msb, lsb: Math.min(msb, lsb) });
+                    }
+                });
+
+                tempFields.sort((a, b) => a.lsb - b.lsb);
+
+                let currentBit = 0;
+                tempFields.forEach(f => {
+                    if (f.lsb > currentBit) {
+                        const gap = f.lsb - currentBit;
+                        fields.push({ name: "RESERVED", width: gap, isReserved: true });
+                    }
+                    fields.push({ name: f.name, width: f.width });
+                    currentBit = f.lsb + f.width;
+                });
+
+            } else {
+                // Width Name 或 Name Width
+                const rawItems = defStr.split(/[\n,]+/).map(s => s.trim()).filter(s => s);
+                rawItems.forEach(item => {
+                    const parts = item.split(/\s+/);
+                    if (parts.length < 2) return;
+                    const firstToken = parts[0];
+                    const lastToken = parts[parts.length - 1];
+
+                    if (/^\d+$/.test(firstToken)) {
+                        const width = parseInt(firstToken);
+                        const name = parts.slice(1).join(' ');
+                        if (!isNaN(width) && width > 0) fields.push({ name, width });
+                    } else if (/^\d+$/.test(lastToken)) {
+                        const width = parseInt(lastToken);
+                        const name = parts.slice(0, parts.length - 1).join(' ');
+                        if (!isNaN(width) && width > 0) fields.push({ name, width });
+                    }
+                });
+            }
+
+            let wayWidth = fields.reduce((sum, f) => sum + f.width, 0);
+            fieldStats.innerText = `Total Width: ${wayWidth} bits`;
+
+            if (fields.length === 0 || !fullBin) return;
+
+            const totalBits = fullBin.length;
+            const numWays = Math.floor(totalBits / wayWidth);
+            wayStats.innerText = `Ways Found: ${numWays}`;
+
+            const isMSB = document.getElementById('dirMSB').checked;
+            const renderFields = isMSB ? fields : [...fields].reverse();
+
+            let thead = '<thead><tr><th class="way-col">Way</th>';
+            renderFields.forEach(f => {
+                const style = f.isReserved ? 'color:#666; font-style:italic;' : '';
+                thead += `<th><span style="${style}">${f.name}</span> <span style="font-size:0.8em; color:#555">(${f.width})</span></th>`;
+            });
+            thead += '</tr></thead>';
+            matrixTable.innerHTML = thead;
+
+            let tbody = document.createElement('tbody');
+
+            for (let w = 0; w < numWays; w++) {
+                let rowHtml = `<tr><td class="way-col">#${w}</td>`;
+
+                let wayStartOffset;
+                if (isMSB) {
+                    wayStartOffset = (totalBits - 1) - (w * wayWidth);
+                } else {
+                    wayStartOffset = w * wayWidth;
+                }
+
+                let currentOffset = wayStartOffset;
+                let rowValues = [];
+
+                fields.forEach(field => {
+                    let startBit, endBit;
+                    if (isMSB) {
+                        startBit = currentOffset;
+                        endBit = currentOffset - field.width + 1;
+                        currentOffset -= field.width;
+                    } else {
+                        startBit = currentOffset + field.width - 1;
+                        endBit = currentOffset;
+                        currentOffset += field.width;
+                    }
+
+                    const bits = extractBits(fullBin, startBit, endBit);
+                    let valHex = "-", valRange = `[${startBit}:${endBit}]`;
+                    if (bits) {
+                        const bigVal = BigInt('0b' + bits);
+                        valHex = '0x' + bigVal.toString(16).toUpperCase();
+                    }
+                    rowValues.push({ valHex, valRange, isReserved: field.isReserved });
+                });
+
+                if (!isMSB) rowValues.reverse();
+
+                rowValues.forEach(v => {
+                    if (v.isReserved) {
+                        rowHtml += `<td><span class="reserved-field">Rsrv</span></td>`;
+                    } else {
+                        rowHtml += `<td>
+                            <div class="val-hex">${v.valHex}</div>
+                            <div class="val-range">${v.valRange}</div>
+                        </td>`;
+                    }
+                });
+
+                rowHtml += '</tr>';
+                tbody.innerHTML += rowHtml;
+            }
+            matrixTable.appendChild(tbody);
+        }
+
+        function showError(show) {
+            errorMsg.style.display = show ? 'block' : 'none';
+        }
+    </script>
+</body>
+</html>

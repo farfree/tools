@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://ui-avatars.com/api/?name=67&background=007bff&color=fff&rounded=true&bold=true&length=2%22 type="image/png">
+    <title>64-bit Register Analyzer (X Button)</title>
+    <style>
+        :root {
+            --bit-on: #4CAF50;
+            --bit-off: #eee;
+            --border: #ccc;
+            --text: #333;
+            --danger: #dc3545;
+        }
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f9f9f9; color: var(--text); }
+        h2 { margin-bottom: 10px; }
+
+        /* 工具列 */
+        .toolbar { margin-bottom: 20px; }
+        button { padding: 6px 12px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 14px; }
+        button:hover { background: #0056b3; }
+
+        /* Shift 按鈕樣式 */
+        .btn-shift { background: #6c757d; }
+        .btn-shift:hover { background: #5a6268; }
+
+        /* 刪除按鈕樣式 (紅色 X) */
+        .btn-delete {
+            background: var(--danger);
+            color: white;
+            width: 28px;
+            height: 28px;
+            font-size: 20px;
+            font-weight: bold;
+            line-height: 1;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            margin-left: auto; /* 推到最右邊 */
+            transition: background 0.2s;
+        }
+        .btn-delete:hover { background: #c82333; }
+
+        /* Register 容器 */
+        .reg-container {
+            background: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        /* 控制區 Header */
+        .reg-header {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        input[type="text"], input[type="number"] { padding: 6px; font-family: monospace; border: 1px solid #ccc; border-radius: 3px; font-size: 14px; }
+
+        .reg-name { width: 80px; font-weight: bold; }
+
+        /* 輸入群組樣式 */
+        .input-group { display: flex; align-items: center; gap: 5px; }
+        .input-label { font-weight: bold; color: #555; font-size: 14px; }
+
+        .hex-input { width: 140px; color: #0056b3; font-weight: bold; }
+        .dec-input { width: 170px; color: #28a745; font-weight: bold; }
+        .bin-input { width: 280px; color: #d63384; font-weight: bold; font-size: 13px; }
+
+        .shift-input { width: 40px; text-align: center; }
+
+        /* Shift Control Group */
+        .shift-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: #f1f1f1;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        /* Bit 視覺化區 */
+        .bit-grid {
+            display: grid;
+            grid-template-columns: repeat(32, 1fr);
+            gap: 3px;
+        }
+
+        @media (min-width: 1400px) {
+            .bit-grid { grid-template-columns: repeat(64, 1fr); }
+        }
+
+        .bit-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .bit-value-box {
+            width: 100%;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bit-off);
+            color: #999;
+            font-weight: bold;
+            font-size: 14px;
+            border-radius: 3px;
+            transition: all 0.1s;
+            border: 1px solid #ddd;
+        }
+
+        .bit-box.active .bit-value-box {
+            background: var(--bit-on);
+            color: white;
+            border-color: #388E3C;
+        }
+
+        .bit-index { color: #888; font-size: 10px; margin-bottom: 2px; }
+        .bit-box:nth-child(8n) { margin-right: 6px; }
+
+    </style>
+</head>
+<body>
+
+    <h2>64-bit Register Analyzer</h2>
+    <div class="toolbar">
+        <button onclick="addRegister()">+ 新增 Register</button>
+        <button onclick="clearAll()" style="background:#6c757d; margin-left:10px;">全部重置</button>
+    </div>
+
+    <div id="registers-wrapper"></div>
+
+<script>
+    const MASK_64 = 0xFFFFFFFFFFFFFFFFn;
+
+    window.onload = function() {
+        addRegister("Reg A");
+        addRegister("Reg B");
+        addRegister("Reg C");
+    };
+
+    let regCount = 0;
+
+    function addRegister(defaultName) {
+        regCount++;
+        const name = defaultName || `Reg ${regCount}`;
+        const wrapper = document.getElementById('registers-wrapper');
+        const id = regCount;
+
+        const div = document.createElement('div');
+        div.className = 'reg-container';
+        div.id = `reg-${id}`;
+
+        let html = `
+            <div class="reg-header">
+                <input type="text" class="reg-name" value="${name}" placeholder="名稱">
+
+                <div class="input-group">
+                    <span class="input-label">0x</span>
+                    <input type="text" class="hex-input" id="hex-${id}" value="0" oninput="handleHexInput(${id}, this.value)" placeholder="Hex">
+                </div>
+
+                <div class="input-group">
+                    <span class="input-label">Dec</span>
+                    <input type="text" class="dec-input" id="dec-${id}" value="0" oninput="handleDecInput(${id}, this.value)" placeholder="Decimal">
+                </div>
+
+                <div class="input-group">
+                    <span class="input-label">Bin</span>
+                    <input type="text" class="bin-input" id="bin-${id}" value="0" oninput="handleBinInput(${id}, this.value)" placeholder="Binary">
+                </div>
+
+                <div class="shift-control">
+                    <span class="input-label">Shift:</span>
+                    <button class="btn-shift" onclick="doShift(${id}, 'left')"> << </button>
+                    <input type="number" id="shift-n-${id}" class="shift-input" value="1" min="0" max="64">
+                    <button class="btn-shift" onclick="doShift(${id}, 'right')"> >> </button>
+                </div>
+
+                <button class="btn-delete" onclick="removeRegister(${id})" title="刪除此區塊">&times;</button>
+            </div>
+
+            <div class="bit-grid">
+        `;
+
+        for (let i = 63; i >= 0; i--) {
+            html += `
+                <div class="bit-box" id="bit-wrap-${id}-${i}" onclick="toggleBit(${id}, ${i})">
+                    <span class="bit-index">${i}</span>
+                    <div class="bit-value-box" id="bit-val-${id}-${i}">0</div>
+                </div>
+            `;
+        }
+        html += `</div>`;
+
+        div.innerHTML = html;
+        wrapper.appendChild(div);
+    }
+
+    function removeRegister(id) {
+        const el = document.getElementById(`reg-${id}`);
+        if (el) el.remove();
+    }
+
+    // --- Handlers ---
+    function handleHexInput(id, hexStr) {
+        hexStr = hexStr.replace(/[^0-9a-fA-F]/g, '');
+        if (!hexStr) hexStr = "0";
+        try {
+            let val = BigInt("0x" + hexStr);
+            val = val & MASK_64;
+            updateUI(id, val, 'hex');
+        } catch (e) { console.error("Hex Error"); }
+    }
+
+    function handleDecInput(id, decStr) {
+        decStr = decStr.replace(/[^0-9]/g, '');
+        if (!decStr) decStr = "0";
+        try {
+            let val = BigInt(decStr);
+            val = val & MASK_64;
+            updateUI(id, val, 'dec');
+        } catch (e) { console.error("Dec Error"); }
+    }
+
+    function handleBinInput(id, binStr) {
+        binStr = binStr.replace(/[^01]/g, '');
+        if (!binStr) binStr = "0";
+        try {
+            let val = BigInt("0b" + binStr);
+            val = val & MASK_64;
+            updateUI(id, val, 'bin');
+        } catch (e) { console.error("Bin Error"); }
+    }
+
+    function doShift(id, direction) {
+        const inputEl = document.getElementById(`hex-${id}`);
+        let currentHex = inputEl.value.replace(/[^0-9a-fA-F]/g, '') || "0";
+        let val = BigInt("0x" + currentHex);
+        const shiftAmtInput = document.getElementById(`shift-n-${id}`);
+        let amount = BigInt(shiftAmtInput.value || 0);
+
+        if (direction === 'left') {
+            val = (val << amount) & MASK_64;
+        } else {
+            val = val >> amount;
+        }
+        updateUI(id, val, 'shift');
+    }
+
+    function toggleBit(regId, bitIndex) {
+        const inputEl = document.getElementById(`hex-${regId}`);
+        let currentHex = inputEl.value.replace(/[^0-9a-fA-F]/g, '') || "0";
+        let val = BigInt("0x" + currentHex);
+        let mask = 1n << BigInt(bitIndex);
+        val = val ^ mask;
+        updateUI(regId, val, 'bit');
+    }
+
+    function updateUI(id, bigIntVal, source) {
+        if (source !== 'hex') document.getElementById(`hex-${id}`).value = bigIntVal.toString(16).toUpperCase();
+        if (source !== 'dec') document.getElementById(`dec-${id}`).value = bigIntVal.toString();
+        if (source !== 'bin') document.getElementById(`bin-${id}`).value = bigIntVal.toString(2);
+
+        for (let i = 0; i < 64; i++) {
+            const wrapEl = document.getElementById(`bit-wrap-${id}-${i}`);
+            const valEl = document.getElementById(`bit-val-${id}-${i}`);
+            const isSet = (bigIntVal & (1n << BigInt(i))) !== 0n;
+
+            if (isSet) {
+                wrapEl.classList.add('active');
+                valEl.innerText = "1";
+            } else {
+                wrapEl.classList.remove('active');
+                valEl.innerText = "0";
+            }
+        }
+    }
+
+    function clearAll() {
+        document.getElementById('registers-wrapper').innerHTML = '';
+        regCount = 0;
+        addRegister("Reg A");
+        addRegister("Reg B");
+        addRegister("Reg C");
+    }
+</script>
+
+</body>
+</html>
