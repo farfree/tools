@@ -12,7 +12,7 @@
             --border-color: #333;
             --table-header-bg: #252526;
             --table-row-hover: #2a2d2e;
-            --highlight-color: #ce9178;
+            --highlight-color: #ce9178; 
             --success-color: #4ec9b0;
             --field-color: #9cdcfe;
             --way-idx-color: #569cd6;
@@ -34,18 +34,15 @@
         .container {
             display: grid;
             gap: 20px;
-            /* 預設: 左側自適應，右側 380px */
-            grid-template-columns: 1fr 380px;
+            grid-template-columns: 1fr 380px; 
             height: 95vh;
-            /* 加入平滑過渡效果 */
             transition: grid-template-columns 0.3s ease;
-            position: relative; /* 為了定位 toggle 按鈕 */
+            position: relative;
         }
-
-        /* 收合狀態: 右側寬度變為 0 */
+        
         .container.collapsed {
             grid-template-columns: 1fr 0px;
-            gap: 0; /* 收合時移除間距 */
+            gap: 0;
         }
 
         @media (max-width: 900px) {
@@ -62,21 +59,15 @@
             background: #333;
             color: #fff;
             border: 1px solid #555;
-            border-radius: 4px 0 0 4px; /* 左邊圓角 */
+            border-radius: 4px 0 0 4px;
             padding: 5px 10px;
             cursor: pointer;
             font-weight: bold;
             opacity: 0.7;
             transition: all 0.2s;
         }
-        .toggle-btn:hover {
-            opacity: 1;
-            background: var(--accent-color);
-        }
-        /* 當收合時，按鈕位置稍微調整一下，或保持在最右邊 */
-        .container.collapsed .toggle-btn {
-            background: var(--accent-color);
-        }
+        .toggle-btn:hover { opacity: 1; background: var(--accent-color); }
+        .container.collapsed .toggle-btn { background: var(--accent-color); }
 
         /* --- Left Panel --- */
         .left-panel {
@@ -96,7 +87,7 @@
         }
 
         label { display: block; margin-bottom: 8px; color: #9cdcfe; font-weight: bold; font-size: 0.95em; }
-
+        
         textarea {
             width: 100%;
             background-color: #111;
@@ -129,15 +120,15 @@
             font-size: 0.9em;
         }
         button.action-btn:hover { background-color: #005f9e; }
-
+        
         .radio-group { display: flex; gap: 15px; margin-bottom: 5px; font-size: 0.9em; }
-
+        
         /* --- Parser Matrix Table --- */
         .parser-container {
             overflow: auto;
             margin-top: 10px;
             border-top: 1px solid #444;
-            flex-grow: 1;
+            flex-grow: 1; 
         }
 
         .matrix-table {
@@ -146,7 +137,7 @@
             font-size: 0.9em;
             white-space: nowrap;
         }
-
+        
         .matrix-table th {
             text-align: center;
             color: var(--field-color);
@@ -173,10 +164,9 @@
             left: 0;
             z-index: 6;
         }
-
+        
         .val-hex { color: var(--highlight-color); font-weight: bold; }
         .val-range { display: block; font-size: 0.8em; color: #666; margin-top: 2px; }
-
         .reserved-field { color: var(--reserved-color); font-style: italic; }
 
         /* --- Right Panel (Main Table) --- */
@@ -184,20 +174,15 @@
             border: 1px solid var(--border-color);
             overflow-y: auto;
             background: #1e1e1e;
-            width: 100%;
-            /* 當寬度變為0時，隱藏內容，避免擠壓 */
-            overflow-x: hidden;
+            width: 100%; 
+            overflow-x: hidden; 
             min-width: 0;
             opacity: 1;
             transition: opacity 0.2s;
         }
-
-        /* 收合時隱藏內容以優化效能 */
-        .container.collapsed .table-wrapper {
-            opacity: 0;
-            pointer-events: none;
-        }
-
+        
+        .container.collapsed .table-wrapper { opacity: 0; pointer-events: none; }
+        
         table.main-table {
             width: 100%;
             border-collapse: collapse;
@@ -214,7 +199,7 @@
             z-index: 10;
             border-bottom: 1px solid #555;
         }
-
+        
         table.main-table td {
             padding: 4px 5px;
             border-bottom: 1px solid #2a2a2a;
@@ -225,13 +210,13 @@
         .idx-col { width: 70px; color: #569cd6; text-align: right; border-right: 2px solid #444 !important; }
         .bin-col { width: 140px; letter-spacing: 1px; font-family: 'Consolas'; color: #888; text-align: center; }
         .hex-col { width: 50px; color: var(--highlight-color); text-align: center; }
-
+        
         .bit-1 { color: #b5cea8; font-weight: bold; background: rgba(181, 206, 168, 0.1); }
         .bit-0 { color: #505050; }
 
         tr:hover { background-color: var(--table-row-hover); }
         .error { color: #f48771; margin-top: 5px; display: none; font-size: 0.9em; }
-
+        
         .stats-tag {
             background: #333;
             padding: 2px 6px;
@@ -244,14 +229,14 @@
 <body>
 
     <div class="container" id="mainContainer">
-
+        
         <button class="toggle-btn" onclick="toggleRightPanel()" id="toggleBtn" title="Toggle Bit View"> Hide Bits &gt;&gt;</button>
 
         <div class="left-panel">
-
+            
             <div class="panel">
                 <h3>1. Source Hex</h3>
-                <textarea id="hexInput" style="height: 70px;"></textarea>
+                <textarea id="hexInput" style="height: 70px;">0x875E186D-696A44F1-FFFFFFFF-FFFFFFF8</textarea>
                 <div id="errorMsg" class="error">Invalid Hex String</div>
 
                 <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
@@ -274,14 +259,20 @@
 
             <div class="panel" style="border-left: 4px solid var(--field-color); flex-grow: 1; display: flex; flex-direction: column;">
                 <h3>3. Universal Parser</h3>
-
+                
                 <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 5px;">
                     <label style="margin-bottom:0;">Field Definitions:</label>
                     <span id="fieldStats" class="stats-tag">Total Width: 0 bits</span>
                 </div>
-
-                <textarea id="fieldDefInput" style="height: 140px;" placeholder="支援三種格式:&#10;1. Width Name: 13 BCD_L3IF&#10;2. Name Width: Tag 12&#10;3. Spec: Field val[7:0]"></textarea>
-
+                
+                <textarea id="fieldDefInput" style="height: 140px;" placeholder="支援三種格式:&#10;1. Width Name: 13 BCD_L3IF&#10;2. Name Width: Tag 12&#10;3. Spec: Field val[7:0]">1	VALID
+1	TYPE
+13	BCD_L3IF
+48	MAC_ADDR
+1	BMSK_TYPE
+13	BMSK_BCD_L3IF
+48	BMSK_MAC_ADDR</textarea>
+                
                 <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div class="radio-group">
                         <label>Order:</label>
@@ -346,12 +337,7 @@
         function toggleRightPanel() {
             mainContainer.classList.toggle('collapsed');
             const isCollapsed = mainContainer.classList.contains('collapsed');
-
-            if (isCollapsed) {
-                toggleBtn.innerHTML = '&lt;&lt; Show Bits';
-            } else {
-                toggleBtn.innerHTML = 'Hide Bits &gt;&gt;';
-            }
+            toggleBtn.innerHTML = isCollapsed ? '&lt;&lt; Show Bits' : 'Hide Bits &gt;&gt;';
         }
 
         function updateAll() {
@@ -360,8 +346,14 @@
             parseFields();
         }
 
+        // --- Core Cleaning Function Updated ---
         function getCleanHex() {
-            return hexInput.value.trim().replace(/\s/g, '').replace(/^0x/i, '');
+            // 1. 去除前後空白
+            // 2. 去除開頭的 0x (case insensitive)
+            // 3. 去除所有 空白字元(\s) 和 連字號(-)
+            return hexInput.value.trim()
+                .replace(/^0x/i, '')
+                .replace(/[\s-]/g, '');
         }
 
         function hexToBinaryStr(hex) {
@@ -377,7 +369,7 @@
         function extractBits(fullBin, start, end) {
             const totalBits = fullBin.length;
             const strStart = totalBits - 1 - start;
-            const strEnd = totalBits - end;
+            const strEnd = totalBits - end; 
             if (strStart < 0 || strEnd > totalBits || strStart >= strEnd) return null;
             return fullBin.slice(strStart, strEnd);
         }
@@ -406,9 +398,7 @@
             }
             showError(false);
             if (rawHex.length % 2 !== 0) rawHex = '0' + rawHex;
-
-            // 如果右側被收合，可以選擇不渲染 DOM 提升效能 (可選)
-            // 這裡為了保持展開時能馬上看到，仍然渲染，但 CSS 會隱藏
+            
             let binaryStr = hexToBinaryStr(rawHex);
             const totalBits = binaryStr.length;
             tableBody.innerHTML = '';
@@ -418,7 +408,7 @@
                 const chunkStart = totalBits - 1 - i;
                 const chunkEnd = totalBits - (i + chunk.length);
                 const hexChunk = parseInt(chunk, 2).toString(16).toUpperCase().padStart(2, '0');
-                const styledBin = chunk.split('').map(b =>
+                const styledBin = chunk.split('').map(b => 
                     `<span class="${b === '1' ? 'bit-1' : 'bit-0'}">${b}</span>`
                 ).join('');
                 const tr = document.createElement('tr');
@@ -461,16 +451,16 @@
             matrixTable.innerHTML = '';
             wayStats.innerText = '';
             fieldStats.innerText = 'Total Width: 0 bits';
-
+            
             let defStr = fieldDefInput.value.trim();
             const rawHex = getCleanHex();
             const fullBin = hexToBinaryStr(rawHex);
             if (!defStr) return;
 
             let fields = [];
-
+            
             if (defStr.match(/\[\d+:\d+\]/)) {
-                // Spec 格式
+                // Spec Format
                 if(!document.getElementById('dirLSB').checked) {
                      document.getElementById('dirLSB').checked = true;
                 }
@@ -502,7 +492,7 @@
                 });
 
             } else {
-                // Width Name 或 Name Width
+                // Simple Format (Width Name / Name Width)
                 const rawItems = defStr.split(/[\n,]+/).map(s => s.trim()).filter(s => s);
                 rawItems.forEach(item => {
                     const parts = item.split(/\s+/);
@@ -543,11 +533,11 @@
             matrixTable.innerHTML = thead;
 
             let tbody = document.createElement('tbody');
-
+            
             for (let w = 0; w < numWays; w++) {
                 let rowHtml = `<tr><td class="way-col">#${w}</td>`;
-
-                let wayStartOffset;
+                
+                let wayStartOffset; 
                 if (isMSB) {
                     wayStartOffset = (totalBits - 1) - (w * wayWidth);
                 } else {
@@ -555,7 +545,7 @@
                 }
 
                 let currentOffset = wayStartOffset;
-                let rowValues = [];
+                let rowValues = []; 
 
                 fields.forEach(field => {
                     let startBit, endBit;
