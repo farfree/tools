@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Precision Packet Diff & Decoder</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #252526;
+            --text-color: #d4d4d4;
+            --accent-color: #007acc;
+            --border-color: #3e3e42;
+
+            /* Colors for Diff (Red) */
+            --diff-bg: #4e181b;
+            --diff-text: #ff9999;
+
+            /* Colors for Interaction (Blue) */
+            --hover-match: #264f78;
+            --hover-text: #fff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: #333;
+            padding: 8px 20px;
+            border-bottom: 1px solid var(--border-color);
+            flex: 0 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 { margin: 0; font-size: 1.1rem; color: #fff; }
+        .status { font-size: 0.8rem; color: #aaa; }
+
+        .comparator-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            gap: 8px;
+            border-right: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+        .panel:last-child { border-right: none; }
+
+        .panel-header { font-weight: bold; color: #ccc; font-size: 0.9rem; }
+
+        /* Textarea */
+        textarea {
+            background-color: #3c3c3c;
+            color: #b5cea8;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px;
+            font-family: 'Consolas', monospace;
+            resize: none;
+            height: 60px;
+            outline: none;
+            font-size: 0.85rem;
+            width: 96%;
+        }
+        textarea:focus { border-color: var(--accent-color); }
+
+        /* Hex Grid */
+        .hex-grid {
+            flex: 0 0 140px;
+            background-color: #111;
+            border: 1px solid var(--border-color);
+            padding: 5px 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+            cursor: default;
+        }
+
+        .hex-byte {
+            display: inline-block;
+            padding: 0 3px;
+            margin: 0 1px;
+            border-radius: 2px;
+            color: #888;
+            transition: all 0.05s;
+        }
+
+        /* Diff Highlighting */
+        .diff-found {
+            background-color: var(--diff-bg);
+            color: var(--diff-text);
+            font-weight: bold;
+        }
+
+        /* Hover Link Highlighting (Highest Priority) */
+        .linked-highlight {
+            background-color: var(--hover-match) !important;
+            color: var(--hover-text) !important;
+            font-weight: bold;
+        }
+
+        .offset-label { color: #569cd6; margin-right: 10px; user-select: none; opacity: 0.7;}
+
+        /* Tree View */
+        .tree-view {
+            flex: 1;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 5px;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+        }
+
+        .packet-layer { margin-bottom: 2px; }
+
+        .layer-header {
+            cursor: pointer;
+            padding: 3px 6px;
+            background-color: #333;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            border-left: 3px solid transparent;
+        }
+
+        .layer-header.diff-layer {
+            border-left-color: #ff5555;
+            background-color: #3a2020;
+            color: #ffaaaa;
+        }
+
+        .layer-header::before { content: '▼'; margin-right: 8px; font-size: 0.8em; }
+        .packet-layer.collapsed .layer-header::before { transform: rotate(-90deg); }
+        .layer-content { padding-left: 15px; border-left: 1px solid #444; }
+        .packet-layer.collapsed .layer-content { display: none; }
+
+        .field-row {
+            padding: 2px 5px;
+            display: flex;
+            border-radius: 2px;
+            transition: background-color 0.1s;
+        }
+
+        .field-row.diff-field {
+            background-color: var(--diff-bg);
+        }
+        .field-row.diff-field .f-val { color: var(--diff-text); font-weight: bold;}
+
+        /* Reverse Highlight Style */
+        .tree-row-hover {
+            background-color: var(--hover-match);
+            color: #fff !important;
+        }
+        .tree-row-hover .f-label, .tree-row-hover .f-val { color: #fff !important; }
+
+        .f-label { color: #9cdcfe; margin-right: 10px; min-width: 120px; }
+        .f-val { color: #ce9178; word-break: break-all; }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>📡 Precision Packet Diff</h1>
+    <div class="status">Auto-Decode: ON | Auto-Format: 1s Delay</div>
+</header>
+
+<div class="comparator-container">
+
+    <div class="panel" id="panelA">
+        <div class="panel-header">Packet A</div>
+        <textarea id="inputA" placeholder="Paste Hex A..."></textarea>
+        <div class="hex-grid" id="gridA"></div>
+        <div class="tree-view" id="treeA"></div>
+    </div>
+
+    <div class="panel" id="panelB">
+        <div class="panel-header">Packet B</div>
+        <textarea id="inputB" placeholder="Paste Hex B..."></textarea>
+        <div class="hex-grid" id="gridB"></div>
+        <div class="tree-view" id="treeB"></div>
+    </div>
+
+</div>
+
+<script>
+    // --- Global State ---
+    const state = {
+        A: { bytes: new Uint8Array(), layers: [] },
+        B: { bytes: new Uint8Array(), layers: [] },
+        diffSet: new Set(),
+        debounceTimers: {}
+    };
+
+    // --- Helpers ---
+    function cleanHex(input) { return input.replace(/\s+|0x|:|/g, '').toLowerCase(); }
+
+    function hexToBytes(hex) {
+        if (hex.length % 2 !== 0) return new Uint8Array();
+        const bytes = [];
+        for (let i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
+        return new Uint8Array(bytes);
+    }
+
+    function formatHexBytes(bytes) {
+        let fmt = "";
+        for(let i=0; i<bytes.length; i++) {
+            fmt += bytes[i].toString(16).padStart(2,'0').toUpperCase() + " ";
+            if((i+1)%16===0) fmt += "\n";
+        }
+        return fmt.trim();
+    }
+
+    // --- Granular Parsers (Field Level Mapping) ---
+    // Now every field object includes: { range: [startOffset, length] }
+
+    function getIPv4Addr(bytes, off) { return `${bytes[off]}.${bytes[off+1]}.${bytes[off+2]}.${bytes[off+3]}`; }
+    function getMacAddr(bytes, off) { return Array.from(bytes.slice(off, off+6)).map(b => b.toString(16).padStart(2,'0')).join(':'); }
+
+    function parseEthernet(view, offset, data) {
+        if (view.byteLength < 14) return null;
+        const type = view.getUint16(offset + 12, false);
+        return {
+            name: "Ethernet II",
+            range: [offset, 14],
+            size: 14,
+            nextProto: type,
+            fields: [
+                { label: "Destination", value: getMacAddr(data, offset), range: [offset, 6] },
+                { label: "Source", value: getMacAddr(data, offset + 6), range: [offset + 6, 6] },
+                { label: "Type", value: `0x${type.toString(16).padStart(4,'0')}`, range: [offset + 12, 2] }
+            ]
+        };
+    }
+
+    function parseIPv4(view, offset, data) {
+        const verIhl = view.getUint8(offset);
+        const ihl = (verIhl & 0x0F) * 4;
+        const totalLen = view.getUint16(offset + 2, false);
+        const id = view.getUint16(offset + 4, false);
+        const ttl = view.getUint8(offset + 8);
+        const protocol = view.getUint8(offset + 9);
+        const checksum = view.getUint16(offset + 10, false);
+
+        return {
+            name: "Internet Protocol Version 4",
+            range: [offset, ihl],
+            size: ihl,
+            nextProto: protocol,
+            fields: [
+                { label: "Version/Header Len", value: `0x${verIhl.toString(16)} (${ihl} bytes)`, range: [offset, 1] },
+                { label: "Differentiated Svcs", value: `0x${view.getUint8(offset+1).toString(16)}`, range: [offset+1, 1] },
+                { label: "Total Length", value: totalLen, range: [offset+2, 2] },
+                { label: "Identification", value: `0x${id.toString(16)}`, range: [offset+4, 2] },
+                { label: "Flags/Frag Offset", value: `0x${view.getUint16(offset+6, false).toString(16)}`, range: [offset+6, 2] },
+                { label: "Time to Live", value: ttl, range: [offset+8, 1] },
+                { label: "Protocol", value: protocol, range: [offset+9, 1] },
+                { label: "Header Checksum", value: `0x${checksum.toString(16)}`, range: [offset+10, 2] },
+                { label: "Source Address", value: getIPv4Addr(data, offset+12), range: [offset+12, 4] },
+                { label: "Dest Address", value: getIPv4Addr(data, offset+16), range: [offset+16, 4] }
+            ]
+        };
+    }
+
+    function parseTCP(view, offset, data) {
+        const offsetFlags = view.getUint16(offset + 12, false);
+        const headerLen = ((offsetFlags >> 12) & 0xF) * 4;
+
+        return {
+            name: "Transmission Control Protocol",
+            range: [offset, headerLen],
+            size: headerLen,
+            nextProto: "Payload",
+            fields: [
+                { label: "Source Port", value: view.getUint16(offset, false), range: [offset, 2] },
+                { label: "Destination Port", value: view.getUint16(offset + 2, false), range: [offset + 2, 2] },
+                { label: "Sequence Number", value: view.getUint32(offset + 4, false), range: [offset + 4, 4] },
+                { label: "Ack Number", value: view.getUint32(offset + 8, false), range: [offset + 8, 4] },
+                { label: "Header Len/Flags", value: `0x${offsetFlags.toString(16)}`, range: [offset + 12, 2] },
+                { label: "Window Size", value: view.getUint16(offset + 14, false), range: [offset + 14, 2] },
+                { label: "Checksum", value: `0x${view.getUint16(offset + 16, false).toString(16)}`, range: [offset + 16, 2] },
+                { label: "Urgent Pointer", value: view.getUint16(offset + 18, false), range: [offset + 18, 2] }
+            ]
+        };
+    }
+
+    function parseUDP(view, offset, data) {
+        return {
+            name: "User Datagram Protocol",
+            range: [offset, 8],
+            size: 8,
+            nextProto: "Payload",
+            fields: [
+                { label: "Source Port", value: view.getUint16(offset, false), range: [offset, 2] },
+                { label: "Destination Port", value: view.getUint16(offset + 2, false), range: [offset + 2, 2] },
+                { label: "Length", value: view.getUint16(offset + 4, false), range: [offset + 4, 2] },
+                { label: "Checksum", value: `0x${view.getUint16(offset + 6, false).toString(16)}`, range: [offset + 6, 2] }
+            ]
+        };
+    }
+
+    // --- Decoder Engine ---
+    function decodeLayers(bytes) {
+        if(bytes.length === 0) return [];
+        const view = new DataView(bytes.buffer);
+        let offset = 0;
+        let layers = [];
+
+        try {
+            let eth = parseEthernet(view, offset, bytes);
+            if (eth) {
+                layers.push(eth); offset += eth.size;
+                if (eth.nextProto === 0x0800) {
+                    let ip = parseIPv4(view, offset, bytes);
+                    layers.push(ip); offset += ip.size;
+                    if (ip.nextProto === 6) {
+                        let tcp = parseTCP(view, offset, bytes); layers.push(tcp); offset += tcp.size;
+                    } else if (ip.nextProto === 17) {
+                        let udp = parseUDP(view, offset, bytes); layers.push(udp); offset += udp.size;
+                    }
+                }
+            }
+        } catch(e) {}
+
+        if (offset < bytes.length) {
+            layers.push({
+                name: "Payload / Data",
+                range: [offset, bytes.length - offset],
+                size: bytes.length - offset,
+                fields: [{label: "Data", value: "Raw Bytes...", range: [offset, bytes.length - offset]}]
+            });
+        }
+        return layers;
+    }
+
+    // --- Main Logic & Formatting ---
+
+    function handleInput(side) {
+        const inputEl = document.getElementById(`input${side}`);
+        const hexStr = cleanHex(inputEl.value);
+
+        // 1. Decode & Update View (Immediate)
+        state[side].bytes = hexToBytes(hexStr);
+        state[side].layers = decodeLayers(state[side].bytes);
+        calculateDiff();
+        renderSide('A');
+        renderSide('B');
+
+        // 2. Schedule Auto-Format (Debounced)
+        clearTimeout(state.debounceTimers[side]);
+        state.debounceTimers[side] = setTimeout(() => {
+            if (state[side].bytes.length > 0) {
+                const formatted = formatHexBytes(state[side].bytes);
+                // Only update if it actually changes to avoid cursor weirdness if already formatted
+                if (inputEl.value.replace(/\s/g,'') === formatted.replace(/\s/g,'')) {
+                     // Check if format is actually different (e.g. missing spaces)
+                     if(inputEl.value !== formatted) {
+                         inputEl.value = formatted;
+                     }
+                }
+            }
+        }, 1000); // 1 second delay
+    }
+
+    function calculateDiff() {
+        state.diffSet.clear();
+        const maxLen = Math.max(state.A.bytes.length, state.B.bytes.length);
+        for (let i = 0; i < maxLen; i++) {
+            const valA = i < state.A.bytes.length ? state.A.bytes[i] : null;
+            const valB = i < state.B.bytes.length ? state.B.bytes[i] : null;
+            if (valA !== valB) state.diffSet.add(i);
+        }
+    }
+
+    // --- Rendering ---
+    function renderSide(side) {
+        const bytes = state[side].bytes;
+        const layers = state[side].layers;
+        const grid = document.getElementById(`grid${side}`);
+        const tree = document.getElementById(`tree${side}`);
+
+        // 1. Render Hex Grid
+        let gridHtml = '';
+        for(let i=0; i<bytes.length; i++) {
+            const isDiff = state.diffSet.has(i);
+            const byteHex = bytes[i].toString(16).padStart(2,'0').toUpperCase();
+            if(i%16===0) gridHtml += (i>0?'<br>':'') + `<span class="offset-label">${i.toString(16).padStart(4,'0')}</span>`;
+
+            gridHtml += `<span id="b-${side}-${i}" class="hex-byte ${isDiff ? 'diff-found' : ''}"
+                           onmouseenter="handleHexHover('${side}', ${i})"
+                           onmouseleave="clearHighlight('${side}')">${byteHex}</span>`;
+        }
+        grid.innerHTML = gridHtml;
+
+        // 2. Render Tree
+        tree.innerHTML = "";
+        layers.forEach(layer => {
+            // Check diff for layer
+            let layerDiff = false;
+            const [lStart, lLen] = layer.range;
+            for(let k=lStart; k<lStart+lLen; k++) if(state.diffSet.has(k)) layerDiff = true;
+
+            const layerEl = document.createElement('div');
+            layerEl.className = 'packet-layer';
+
+            // Layer Header
+            const header = document.createElement('div');
+            header.className = `layer-header ${layerDiff ? 'diff-layer' : ''}`;
+            header.textContent = layer.name;
+            header.onclick = () => layerEl.classList.toggle('collapsed');
+
+            // Hover Whole Layer (Generic)
+            header.onmouseenter = () => highlightHexRange(side, lStart, lLen);
+            header.onmouseleave = () => clearHighlight(side);
+
+            const content = document.createElement('div');
+            content.className = 'layer-content';
+
+            layer.fields.forEach(f => {
+                const [fStart, fLen] = f.range;
+                // Check diff for specific field
+                let fieldDiff = false;
+                for(let k=fStart; k<fStart+fLen; k++) if(state.diffSet.has(k)) fieldDiff = true;
+
+                const row = document.createElement('div');
+                row.className = `field-row ${fieldDiff ? 'diff-field' : ''}`;
+
+                // DATA ATTRIBUTES FOR MAPPING
+                row.dataset.start = fStart;
+                row.dataset.len = fLen;
+
+                // Hover specific field -> Highlight specific hex bytes
+                row.onmouseenter = (e) => { e.stopPropagation(); highlightHexRange(side, fStart, fLen); };
+                row.onmouseleave = () => clearHighlight(side);
+
+                row.innerHTML = `<span class="f-label">${f.label}:</span><span class="f-val">${f.value}</span>`;
+                content.appendChild(row);
+            });
+
+            layerEl.appendChild(header);
+            layerEl.appendChild(content);
+            tree.appendChild(layerEl);
+        });
+    }
+
+    // --- Interaction ---
+
+    // Tree -> Hex
+    function highlightHexRange(side, start, len) {
+        for(let i=start; i<start+len; i++) {
+            const el = document.getElementById(`b-${side}-${i}`);
+            if(el) el.classList.add('linked-highlight');
+        }
+    }
+
+    // Hex -> Tree (Precise Field Mapping)
+    function handleHexHover(side, idx) {
+        // 1. Highlight the specific FIELD if possible
+        const fieldRow = document.querySelector(`#tree${side} .field-row[data-start]`);
+        const allFields = document.querySelectorAll(`#tree${side} .field-row`);
+
+        let matchFound = false;
+        allFields.forEach(row => {
+            const s = parseInt(row.dataset.start);
+            const l = parseInt(row.dataset.len);
+            if (idx >= s && idx < (s + l)) {
+                row.classList.add('tree-row-hover');
+                matchFound = true;
+
+                // Also highlight parent header just for context (optional, but looks nice)
+                row.closest('.packet-layer').querySelector('.layer-header').classList.add('tree-row-hover');
+            }
+        });
+
+        // 2. If no field matched (e.g. gap?), try Layer Header
+        if (!matchFound) {
+             // Fallback logic could go here
+        }
+    }
+
+    function clearHighlight(side) {
+        document.querySelectorAll(`#grid${side} .linked-highlight`).forEach(el => el.classList.remove('linked-highlight'));
+        document.querySelectorAll(`#tree${side} .tree-row-hover`).forEach(el => el.classList.remove('tree-row-hover'));
+    }
+
+    // --- Init ---
+    document.getElementById('inputA').addEventListener('input', () => handleInput('A'));
+    document.getElementById('inputB').addEventListener('input', () => handleInput('B'));
+
+    // Default Demo Data
+    document.getElementById('inputA').value = "000c294f8e35005056c000080800450000343a42400080066192c0a8010ac0a80108d990005086c559770000000080022000293a0000020405b40103030801010402";
+    document.getElementById('inputB').value = "000c294f8e35005056c000080800450000343a43400080066191c0a8010ac0a80108d990005086c559780000000080022000293a0000020405b40103030801010402";
+    handleInput('A');
+    handleInput('B');
+
+</script>
+
+</body>
+</html>
