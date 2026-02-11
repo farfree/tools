@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Text Diff Tool with Minimap</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --text-color: #d4d4d4;
+            --line-height: 20px;
+            --font-size: 14px;
+            --del-bg: rgba(163, 21, 21, 0.4);
+            --ins-bg: rgba(46, 160, 67, 0.4);
+            --scroll-bar-width: 10px;
+        }
+
+        body {
+            font-family: Consolas, "Courier New", monospace;
+            background-color: #121212;
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            background: #2d2d2d;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #3e3e3e;
+            height: 40px;
+        }
+
+        h2 { margin: 0; font-size: 18px; color: #fff; }
+
+        .status { font-size: 12px; color: #888; margin-left: 10px; }
+
+        /* 主容器 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 編輯器區塊 */
+        .editor-pane {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            border-right: 1px solid #333;
+        }
+
+        .pane-header {
+            background: #252526;
+            padding: 5px 10px;
+            font-size: 12px;
+            color: #9cdcfe;
+            border-bottom: 1px solid #333;
+            text-align: center;
+        }
+
+        /* 疊加層容器 */
+        .editor-wrapper {
+            position: relative;
+            flex: 1;
+            overflow: auto; /* 允許捲動 */
+        }
+
+        /* 共同樣式：確保 Textarea 和 Backdrop 完全重疊對齊 */
+        .code-layer {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: var(--font-size);
+            line-height: var(--line-height);
+            padding: 10px;
+            margin: 0;
+            border: none;
+            width: 100%;
+            box-sizing: border-box;
+            white-space: pre; /* 強制不換行，避免對齊問題，若要換行需兩邊同時設 pre-wrap */
+            overflow-wrap: normal;
+        }
+
+        /* 背景顯示層 (Highlight) */
+        .backdrop {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            color: transparent; /* 文字透明，只顯示背景色 */
+            pointer-events: none; /* 讓點擊穿透到 textarea */
+        }
+
+        /* 前景輸入層 (Textarea) */
+        textarea.code-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+            background: transparent;
+            color: var(--text-color); /* 文字顏色 */
+            caret-color: #fff; /* 游標顏色 */
+            resize: none;
+            outline: none;
+            height: 100%; /* 撐開高度 */
+            overflow: hidden; /* 隱藏 textarea 自己的 scrollbar，由 wrapper 控制 */
+        }
+
+        /* Minimap 區塊 */
+        .minimap-container {
+            width: 40px;
+            background: #1e1e1e;
+            border-left: 1px solid #333;
+            border-right: 1px solid #333;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        canvas#minimap {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* 差異顏色 Highlighting */
+        span.del { background-color: var(--del-bg); text-decoration: line-through; color: transparent; }
+        span.ins { background-color: var(--ins-bg); color: transparent; }
+
+        /* 捲軸樣式 */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div style="display:flex; align-items:center;">
+            <h2>Diff Tool Pro</h2>
+            <span class="status" id="status">Ready</span>
+        </div>
+        <button onclick="clearAll()" style="background:#444; color:#fff; border:none; padding:5px 10px; cursor:pointer; border-radius:3px;">Clear All</button>
+    </header>
+
+    <div class="main-container">
+        <div class="editor-pane">
+            <div class="pane-header">Original Text (Left)</div>
+            <div class="editor-wrapper" id="wrapper1">
+                <div class="code-layer backdrop" id="backdrop1"></div>
+                <textarea class="code-layer" id="text1" placeholder="Paste original text here..." spellcheck="false"></textarea>
+            </div>
+        </div>
+
+        <div class="minimap-container" id="minimapContainer">
+            <canvas id="minimap"></canvas>
+        </div>
+
+        <div class="editor-pane">
+            <div class="pane-header">Modified Text (Right)</div>
+            <div class="editor-wrapper" id="wrapper2">
+                <div class="code-layer backdrop" id="backdrop2"></div>
+                <textarea class="code-layer" id="text2" placeholder="Paste modified text here..." spellcheck="false"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const text1 = document.getElementById('text1');
+        const text2 = document.getElementById('text2');
+        const backdrop1 = document.getElementById('backdrop1');
+        const backdrop2 = document.getElementById('backdrop2');
+        const wrapper1 = document.getElementById('wrapper1');
+        const wrapper2 = document.getElementById('wrapper2');
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapContainer = document.getElementById('minimapContainer');
+        const statusSpan = document.getElementById('status');
+        const ctx = minimapCanvas.getContext('2d');
+
+        // 設定：是否自動換行 (目前設為 false 以確保對齊)
+        // 若要支援換行，需處理 canvas 映射的複雜度
+
+        let debounceTimer;
+
+        // 初始化
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // 監聽輸入事件 (Auto Compare)
+        function onInput() {
+            // 同步 textarea 大小給 backdrop
+            syncSize();
+
+            clearTimeout(debounceTimer);
+            statusSpan.innerText = "Typing...";
+
+            // 延遲 300ms 執行比對，避免卡頓
+            debounceTimer = setTimeout(() => {
+                performDiff();
+                statusSpan.innerText = "Diff Updated";
+            }, 300);
+        }
+
+        text1.addEventListener('input', onInput);
+        text2.addEventListener('input', onInput);
+
+        // 監聽捲動事件 (Sync Scroll)
+        wrapper1.addEventListener('scroll', () => {
+            wrapper2.scrollTop = wrapper1.scrollTop;
+            wrapper2.scrollLeft = wrapper1.scrollLeft;
+        });
+        wrapper2.addEventListener('scroll', () => {
+            wrapper1.scrollTop = wrapper2.scrollTop;
+            wrapper1.scrollLeft = wrapper2.scrollLeft;
+        });
+
+        // 核心比對邏輯
+        function performDiff() {
+            const val1 = text1.value;
+            const val2 = text2.value;
+
+            // 使用 jsdiff (diffWords)
+            const diffs = Diff.diffWords(val1, val2);
+
+            let html1 = '';
+            let html2 = '';
+
+            // 用於 Minimap 的標記數據
+            let mapData = [];
+            // 簡單估算：我們需要知道每個 diff block 在文字中的大概位置
+            // 由於這是 word diff，精確行號計算較複雜，這裡我們用字元長度比例來繪製 Minimap
+
+            let charCount1 = 0;
+            let charCount2 = 0;
+            const totalChars1 = val1.length || 1; // 避免除以 0
+
+            diffs.forEach(part => {
+                const escaped = escapeHtml(part.value);
+
+                if (part.removed) {
+                    // 左邊有，右邊無 -> 紅色
+                    html1 += `<span class="del">${escaped}</span>`;
+                    // 紀錄 Minimap (位置, 類型, 長度)
+                    mapData.push({ type: 'del', start: charCount1, length: part.value.length });
+                    charCount1 += part.value.length;
+                } else if (part.added) {
+                    // 右邊有，左邊無 -> 綠色
+                    html2 += `<span class="ins">${escaped}</span>`;
+                    // 右側新增的內容，我們將其對應到左側的當前位置畫在 Minimap 上
+                    mapData.push({ type: 'ins', start: charCount1, length: part.value.length });
+                    charCount2 += part.value.length;
+                } else {
+                    // 沒變
+                    html1 += `<span>${escaped}</span>`;
+                    html2 += `<span>${escaped}</span>`;
+                    charCount1 += part.value.length;
+                    charCount2 += part.value.length;
+                }
+            });
+
+            // 更新背景層
+            backdrop1.innerHTML = html1 + '<br>'; // 補一個 br 確保高度
+            backdrop2.innerHTML = html2 + '<br>';
+
+            // 調整 textarea 高度以適應內容
+            syncSize();
+
+            // 繪製 Minimap
+            drawMinimap(mapData, totalChars1);
+        }
+
+        // 繪製 Minimap
+        function drawMinimap(mapData, totalChars) {
+            const w = minimapCanvas.width;
+            const h = minimapCanvas.height;
+
+            // 清空
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#2d2d2d'; // 背景
+            ctx.fillRect(0, 0, w, h);
+
+            // 繪製 Viewport Indicator (目前視窗範圍)
+            // 需要算出 total scroll height
+            const scrollHeight = wrapper1.scrollHeight;
+            const clientHeight = wrapper1.clientHeight;
+            const scrollTop = wrapper1.scrollTop;
+
+            // 比例尺
+            const ratio = h / scrollHeight;
+
+            // 畫 diff 條
+            // 這裡我們改用簡單的行高估算，因為上面的 charCount 映射到像素比較困難
+            // 更精準的做法是遍歷 backdrop 的 span 元素取得 offsetTop
+
+            // 為了效能，我們直接掃描 DOM 中的 .del 和 .ins
+            const dels = backdrop1.querySelectorAll('.del');
+            const inss = backdrop2.querySelectorAll('.ins');
+
+            // 繪製刪除 (紅)
+            ctx.fillStyle = '#a31515';
+            dels.forEach(el => {
+                const y = el.offsetTop * ratio;
+                const h_bar = Math.max(2, el.offsetHeight * ratio); // 至少 2px
+                ctx.fillRect(0, y, w/2, h_bar);
+            });
+
+            // 繪製新增 (綠) - 畫在右半邊
+            ctx.fillStyle = '#2ea043';
+            inss.forEach(el => {
+                const y = el.offsetTop * ratio; // 注意：這裡簡化假設左右高度對齊
+                const h_bar = Math.max(2, el.offsetHeight * ratio);
+                ctx.fillRect(w/2, y, w/2, h_bar);
+            });
+
+            // 繪製目前視窗框框 (Viewport)
+            const viewY = scrollTop * ratio;
+            const viewH = clientHeight * ratio;
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.fillRect(0, viewY, w, viewH);
+        }
+
+        // 點擊 Minimap 跳轉
+        minimapContainer.addEventListener('click', (e) => {
+            const rect = minimapCanvas.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const ratio = y / minimapCanvas.height;
+
+            wrapper1.scrollTop = ratio * wrapper1.scrollHeight;
+            // wrapper2 會透過 scroll event 自動同步
+        });
+
+        // 輔助功能
+        function syncSize() {
+            // 讓 backdrop 高度跟隨內容，並撐開 textarea
+            // 因為是 absolute positioning，我們依賴 wrapper 的 scroll
+            const h1 = backdrop1.scrollHeight;
+            const h2 = backdrop2.scrollHeight;
+            const maxH = Math.max(h1, h2, wrapper1.clientHeight);
+
+            text1.style.height = maxH + 'px';
+            text2.style.height = maxH + 'px';
+            backdrop1.style.height = maxH + 'px';
+            backdrop2.style.height = maxH + 'px';
+        }
+
+        function resizeCanvas() {
+            minimapCanvas.width = minimapContainer.clientWidth;
+            minimapCanvas.height = minimapContainer.clientHeight;
+            // 重畫
+            if(text1.value) performDiff();
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function clearAll() {
+            text1.value = '';
+            text2.value = '';
+            backdrop1.innerHTML = '';
+            backdrop2.innerHTML = '';
+            ctx.clearRect(0,0, minimapCanvas.width, minimapCanvas.height);
+        }
+
+        // 初始同步
+        onInput();
+
+        // 讓 Minimap 在捲動時更新 (更新視窗框框位置)
+        wrapper1.addEventListener('scroll', () => {
+             // 簡單重繪 Minimap 視窗框，或是優化只畫框
+             requestAnimationFrame(() => {
+                 // 這裡偷懶直接全部重畫，若是大量文字可優化
+                 if(text1.value || text2.value) performDiff();
+             });
+        });
+
+    </script>
+</body>
+</html>
